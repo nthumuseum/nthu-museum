@@ -133,7 +133,7 @@ def create_wallet_flex(wallet_str):
                     "type": "button",
                     "style": "primary",
                     "color": "#8b0000",
-                    "action": {"type": "message", "label": "工作人員一鍵兌換", "text": "請工作人員輸入兌換密碼"}
+                    "action": {"type": "message", "label": "工作人員核銷", "text": "請工作人員輸入兌換密碼"}
                 }
             ] if has_ticket else []
         }
