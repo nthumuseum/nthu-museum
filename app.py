@@ -122,7 +122,7 @@ def create_wallet_flex(wallet_str):
                     ]
                 },
                 {"type": "separator", "margin": "md"},
-                {"type": "text", "text": "請於指定日期向服務台出示此畫面由工作人員兌換" if has_ticket else "目前沒有可用的兌換卷喔！", "size": "xs", "align": "center", "color": "#aaaaaa", "wrap": True}
+                {"type": "text", "text": "兌換時間為每周三16:00~17:00，週六14:00~15:00" if has_ticket else "目前沒有可用的兌換卷喔！", "size": "xs", "align": "center", "color": "#aaaaaa", "wrap": True}
             ]
         },
         "footer": {
@@ -235,8 +235,8 @@ def handle_message(event):
                 "1. 本次挑戰共有 4 個展區，每區需回答 2 題，總共 8 題。\n"
                 "2. 必須連續全對才算通關。\n"
                 "3. 中途若有一題答錯，進度會歸零需重新開始。\n"
-                "4. 成功通關即可獲得 1 張兌換卷，自動存入「我的兌換卷」中。兌換券每日限領一張，歡迎隔日再次挑戰!\n\n"
-                
+                "4. 成功通關即可獲得 1 張兌換卷，自動存入「我的兌換卷」中。兌換券每日限領一張，歡迎隔日再次挑戰!\n"
+                "5. 兌換時間為4/8(三)開始，每周三16:00~17:00，週六14:00~15:00\n\n"
             )
             reply_msgs.append(TextMessage(
                 text=rule_text,
