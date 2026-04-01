@@ -237,7 +237,7 @@ def handle_message(event):
                 "3. 若途中答錯，挑戰將重新開始，請再接再厲!\n\n"
                 "每週三16:00–17:00\n"
                 "每週六14:00–15:00\n"
-                "請於上述時間，憑「兌換卷」至文物館展覽廳扭蛋換取勳章!\n\n"
+                "請於上述時間，憑「兌換卷」至文物館展覽廳扭蛋換取徽章!\n\n"
             )
             reply_msgs.append(TextMessage(
                 text=rule_text,
