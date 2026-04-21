@@ -298,23 +298,35 @@ def handle_message(event):
             else:
                 mistakes += 1
                 if mistakes >= 3:
+                    # 第三次答錯：完全重置
                     sheet_s.update_cell(row_idx, 2, 0)
                     sheet_s.update_cell(row_idx, 8, 0) 
                     fail_qr = QuickReply(items=[QuickReplyItem(action=MessageAction(label="重新挑戰", text="重新挑戰"))])
                     reply_msgs.append(TextMessage(text="挑戰失敗，進度已歸零。請重新觀察展品後，再次挑戰吧！", quick_reply=fail_qr))
                 else:
-                    # 🌟 修改點：提供正確答案後，加入 Quick Reply 按鈕讓觀眾點選繼續
+                    # 前兩次答錯：只更新錯誤次數，不推進關卡 (curr_stage 不變)
                     sheet_s.update_cell(row_idx, 8, mistakes) 
                     
-                    retry_qr = QuickReply(items=[
-                        QuickReplyItem(action=MessageAction(label="A", text="A")),
-                        QuickReplyItem(action=MessageAction(label="B", text="B")),
-                        QuickReplyItem(action=MessageAction(label="C", text="C"))
-                    ])
+                    # 先給予文字回饋
                     reply_msgs.append(TextMessage(
-                        text=f"不對呦，正確答案是 {correct_ans}。\n(目前錯誤次數：{mistakes}/3)\n請點擊下方正確答案以繼續闖關！",
-                        quick_reply=retry_qr
+                        text=f"不對呦，剛剛那題的正確答案是 {correct_ans}。\n(目前錯誤次數：{mistakes}/3)\n\n為您換一題，請繼續挑戰！"
                     ))
+                    
+                    # 結算目前所在的展區
+                    zone = (int(curr_stage) + 1) // 2 
+                    
+                    # 重新抽同一區的新題目
+                    q_data, new_used_qs = get_random_q_and_update_used(zone, used_qs)
+                    
+                    # 更新資料庫的新答案與記憶
+                    sheet_s.update_cell(row_idx, 3, str(q_data['正確答案']).upper())
+                    sheet_s.update_cell(row_idx, 4, str(q_data.get('提示', '')))
+                    sheet_s.update_cell(row_idx, 5, new_used_qs)
+                    
+                    # 推送新題目卡片
+                    reply_msgs.append(create_question_flex(q_data))
+                    if str(q_data.get('提示', '')).strip():
+                        reply_msgs.append(TextMessage(text=f"提示：{q_data['提示']}"))
 
         # --- 預設導引 ---
         else:
