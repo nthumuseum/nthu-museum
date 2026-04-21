@@ -1,5 +1,6 @@
 import os
 import random
+import json
 from datetime import datetime, timezone, timedelta
 import gspread
 from flask import Flask, request, abort
@@ -20,9 +21,6 @@ app = Flask(__name__)
 configuration = Configuration(access_token=os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
 line_handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 VERIFY_PASSWORD = "123" 
-
-# --- 2. 設定 Google Sheets 連線 & 時區 ---
-import json # 記得確保最上面有 import json
 
 # --- 2. 設定 Google Sheets 連線 & 時區 ---
 google_creds_str = os.getenv('GOOGLE_CREDENTIALS')
@@ -50,7 +48,6 @@ ZONES = {
 }
 
 # --- 4. Flex Message 生成器 ---
-
 def create_zone_flex(zone_id):
     z = ZONES[zone_id]
     bubble = {
@@ -141,44 +138,40 @@ def create_wallet_flex(wallet_str):
     return FlexMessage(alt_text="我的兌換卷", contents=FlexContainer.from_dict(bubble))
 
 # --- 5. 邏輯功能 ---
-
 def get_user_data(user_id):
     users = sheet_s.col_values(1)
     if user_id in users:
         row = users.index(user_id) + 1
         data = sheet_s.row_values(row)
-        while len(data) < 7: data.append("") 
+        # 🌟 修改點：將資料欄位擴充至 8 欄，第 8 欄用於記錄「錯誤次數」
+        while len(data) < 8: data.append("0") 
         return row, data
     else:
-        sheet_s.append_row([user_id, 0, "", "", "", "", ""])
-        return len(users) + 1, [user_id, 0, "", "", "", "", ""]
+        # 新玩家預設錯誤次數為 0
+        sheet_s.append_row([user_id, 0, "", "", "", "", "", "0"])
+        return len(users) + 1, [user_id, 0, "", "", "", "", "", "0"]
 
-# 🌟 全新升級：具備長久記憶與防呆循環的抽題系統
 def get_random_q_and_update_used(zone, used_str):
     records = sheet_q.get_all_records()
     pool = [r for r in records if str(r.get('展區', '')) == str(zone)]
     
     if not pool:
-        return None, used_str # 題庫真的沒半題防呆
+        return None, used_str 
         
     used_list = used_str.split("|||") if used_str else []
-    # 篩選出「還沒考過」的題目
     avail = [q for q in pool if str(q.get('題目', '')) not in used_list]
     
-    # 如果該區所有的題目都考過了 (avail 為空)
     if not avail:
-        # 只把「這一區」的歷史紀錄從大腦中刪除，讓他重新開始循環這區的題目
         zone_titles = [str(q.get('題目', '')) for q in pool]
         used_list = [u for u in used_list if u not in zone_titles]
-        avail = pool # 重新開放全區題庫
+        avail = pool 
         
     picked = random.choice(avail)
-    used_list.append(str(picked['題目'])) # 把新抽到的題目加入記憶
+    used_list.append(str(picked['題目'])) 
     
     return picked, "|||".join(used_list)
 
 # --- 6. 事件處理 ---
-
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -201,12 +194,12 @@ def handle_message(event):
         used_qs = str(u_data[4])
         last_play_date = str(u_data[5]) 
         wallet_str = str(u_data[6])     
+        # 🌟 取出目前的錯誤次數
+        mistakes = int(u_data[7]) if str(u_data[7]).isdigit() else 0 
         
         today_str = datetime.now(tz).strftime('%Y-%m-%d')
-        
         reply_msgs = []
 
-        # --- 兌換密碼鎖 (一鍵大量兌換) ---
         if user_msg == "請工作人員輸入兌換密碼":
             reply_msgs.append(TextMessage(text="[兌換模式] 請工作人員直接輸入「兌換密碼」以兌換所有可用兌換卷。"))
         elif user_msg == VERIFY_PASSWORD:
@@ -223,18 +216,17 @@ def handle_message(event):
                 reply_msgs.append(create_wallet_flex(wallet_str))
                 reply_msgs.append(TextMessage(text="目前沒有可用的兌換卷喔！"))
 
-        # --- 呼叫我的兌換卷 ---
         elif user_msg == "我的兌換卷":
             reply_msgs.append(create_wallet_flex(wallet_str))
 
-        # --- 啟動與規則說明 ---
         elif user_msg == "開始挑戰" or user_msg == "重新挑戰":
             sheet_s.update_cell(row_idx, 2, "Rules_Read") 
+            sheet_s.update_cell(row_idx, 8, 0) # 🌟 重新挑戰時，重置錯誤次數
             rule_text = (
                 "【挑戰規則說明】\n\n"
                 "1. 連續答對8題即可獲得一張兌換卷，將自動存入「我的兌換卷」。\n"
                 "2. 每人每日限領一張，歡迎每日來挑戰!\n"
-                "3. 若途中答錯，挑戰將重新開始，請再接再厲!\n\n"
+                "3. 答錯三次將重新開始，請再接再厲。\n\n" # 🌟 修改規則文字
                 "每週三16:00–17:00\n"
                 "每週六14:00–15:00\n"
                 "請於上述時間，憑「兌換卷」至文物館展覽廳扭蛋換取徽章!\n\n"
@@ -246,12 +238,10 @@ def handle_message(event):
                 ])
             ))
 
-        # --- 確認規則後發展區 1 ---
         elif user_msg == "確認規則並開始":
             sheet_s.update_cell(row_idx, 2, "Intro_1") 
             reply_msgs.append(create_zone_flex(1))
 
-        # --- 確認開始答題 ---
         elif user_msg == "確認開始答題":
             zone = 1
             if curr_stage.startswith("Intro_"):
@@ -259,7 +249,6 @@ def handle_message(event):
             elif curr_stage.isdigit():
                 zone = (int(curr_stage) + 1) // 2
             
-            # 🌟 呼叫具備記憶的新抽題系統
             q_data, new_used_qs = get_random_q_and_update_used(zone, used_qs)
             
             if q_data:
@@ -267,7 +256,7 @@ def handle_message(event):
                 sheet_s.update_cell(row_idx, 2, new_stage)
                 sheet_s.update_cell(row_idx, 3, str(q_data['正確答案']).upper())
                 sheet_s.update_cell(row_idx, 4, str(q_data.get('提示', '')))
-                sheet_s.update_cell(row_idx, 5, new_used_qs) # 直接將新記憶寫入資料庫
+                sheet_s.update_cell(row_idx, 5, new_used_qs) 
                 
                 reply_msgs.append(create_question_flex(q_data))
                 if str(q_data.get('提示', '')).strip():
@@ -278,15 +267,14 @@ def handle_message(event):
             s_int = int(curr_stage)
             if user_msg == correct_ans:
                 if s_int >= MAX_STAGE:
-                    # ✅ 通關處理！
                     sheet_s.update_cell(row_idx, 2, "Completed")
+                    sheet_s.update_cell(row_idx, 8, 0) # 🌟 破關後歸零錯誤次數
                     
                     if last_play_date == today_str:
                         reply_msgs.append(TextMessage(text="恭喜！你已順利通關 8 道難題！\n\n(註：您今日已經領取過兌換卷囉，每天限領一張，歡迎明天再來挑戰收集！)"))
                         reply_msgs.append(create_wallet_flex(wallet_str))
                     else:
                         new_wallet = wallet_str + f",{today_str}:No" if wallet_str else f"{today_str}:No"
-                        # 🌟 移除原本清空記憶的程式碼，讓使用者的答題紀錄永久保存
                         sheet_s.update_cell(row_idx, 6, today_str) 
                         sheet_s.update_cell(row_idx, 7, new_wallet) 
                         
@@ -302,21 +290,29 @@ def handle_message(event):
                         reply_msgs.append(TextMessage(text="答對了！進入下一區。"))
                         reply_msgs.append(create_zone_flex(zone))
                     else:
-                        # 🌟 呼叫具備記憶的新抽題系統
                         q_data, new_used_qs = get_random_q_and_update_used(zone, used_qs)
                         sheet_s.update_cell(row_idx, 2, next_s)
                         sheet_s.update_cell(row_idx, 3, str(q_data['正確答案']).upper())
                         sheet_s.update_cell(row_idx, 4, str(q_data.get('提示', '')))
-                        sheet_s.update_cell(row_idx, 5, new_used_qs) # 直接將新記憶寫入資料庫
+                        sheet_s.update_cell(row_idx, 5, new_used_qs)
                         
                         reply_msgs.append(TextMessage(text="答對了！繼續本區下一題。"))
                         reply_msgs.append(create_question_flex(q_data))
                         if str(q_data.get('提示', '')).strip():
                             reply_msgs.append(TextMessage(text=f"提示：{q_data['提示']}"))
             else:
-                sheet_s.update_cell(row_idx, 2, 0)
-                fail_qr = QuickReply(items=[QuickReplyItem(action=MessageAction(label="重新挑戰", text="重新挑戰"))])
-                reply_msgs.append(TextMessage(text="答錯了！挑戰失敗，進度已歸零。請重新觀察展品後，再次挑戰吧！", quick_reply=fail_qr))
+                # 🌟 修改點：答錯的處理邏輯
+                mistakes += 1
+                if mistakes >= 3:
+                    # 第三次答錯：完全重置
+                    sheet_s.update_cell(row_idx, 2, 0)
+                    sheet_s.update_cell(row_idx, 8, 0) # 將錯誤次數歸零
+                    fail_qr = QuickReply(items=[QuickReplyItem(action=MessageAction(label="重新挑戰", text="重新挑戰"))])
+                    reply_msgs.append(TextMessage(text="挑戰失敗，進度已歸零。請重新觀察展品後，再次挑戰吧！", quick_reply=fail_qr))
+                else:
+                    # 前兩次答錯：給予正確答案，不重置關卡
+                    sheet_s.update_cell(row_idx, 8, mistakes) # 將最新錯誤次數寫入資料庫
+                    reply_msgs.append(TextMessage(text=f"不對呦，正確答案是 {correct_ans}。"))
 
         # --- 預設導引 ---
         else:
