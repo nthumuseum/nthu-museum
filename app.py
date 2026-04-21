@@ -84,7 +84,6 @@ def create_wallet_flex(wallet_str):
     tickets = wallet_str.split(",") if wallet_str else []
     unredeemed_count = sum(1 for t in tickets if t.endswith(":No"))
     redeemed_count = sum(1 for t in tickets if t.endswith(":Yes"))
-    
     has_ticket = unredeemed_count > 0
 
     bubble = {
@@ -150,21 +149,16 @@ def get_user_data(user_id):
 def get_random_q_and_update_used(zone, used_str):
     records = sheet_q.get_all_records()
     pool = [r for r in records if str(r.get('展區', '')) == str(zone)]
-    
     if not pool:
         return None, used_str 
-        
     used_list = used_str.split("|||") if used_str else []
     avail = [q for q in pool if str(q.get('題目', '')) not in used_list]
-    
     if not avail:
         zone_titles = [str(q.get('題目', '')) for q in pool]
         used_list = [u for u in used_list if u not in zone_titles]
         avail = pool 
-        
     picked = random.choice(avail)
     used_list.append(str(picked['題目'])) 
-    
     return picked, "|||".join(used_list)
 
 # --- 6. 事件處理 ---
@@ -191,29 +185,29 @@ def handle_message(event):
         last_play_date = str(u_data[5]) 
         wallet_str = str(u_data[6])     
         mistakes = int(u_data[7]) if str(u_data[7]).isdigit() else 0 
-        
         today_str = datetime.now(tz).strftime('%Y-%m-%d')
         reply_msgs = []
 
+        # --- 兌換密碼鎖 ---
         if user_msg == "請工作人員輸入兌換密碼":
             reply_msgs.append(TextMessage(text="[兌換模式] 請工作人員直接輸入「兌換密碼」以兌換所有可用兌換卷。"))
         elif user_msg == VERIFY_PASSWORD:
             if ":No" in wallet_str:
                 tickets = wallet_str.split(",")
                 unredeemed_count = sum(1 for t in tickets if t.endswith(":No"))
-                
                 new_wallet = wallet_str.replace(":No", ":Yes")
                 sheet_s.update_cell(row_idx, 7, new_wallet)
-                
                 reply_msgs.append(create_wallet_flex(new_wallet))
                 reply_msgs.append(TextMessage(text=f"兌換成功！共兌換了 {unredeemed_count} 張兌換卷。"))
             else:
                 reply_msgs.append(create_wallet_flex(wallet_str))
                 reply_msgs.append(TextMessage(text="目前沒有可用的兌換卷喔！"))
 
+        # --- 我的兌換卷 ---
         elif user_msg == "我的兌換卷":
             reply_msgs.append(create_wallet_flex(wallet_str))
 
+        # --- 開始挑戰 ---
         elif user_msg == "開始挑戰" or user_msg == "重新挑戰":
             sheet_s.update_cell(row_idx, 2, "Rules_Read") 
             sheet_s.update_cell(row_idx, 8, 0) 
@@ -228,16 +222,15 @@ def handle_message(event):
             )
             reply_msgs.append(TextMessage(
                 text=rule_text,
-                quick_reply=QuickReply(items=[
-                    QuickReplyItem(action=MessageAction(label="確認規則並開始", text="確認規則並開始"))
-                ])
+                quick_reply=QuickReply(items=[QuickReplyItem(action=MessageAction(label="確認規則並開始", text="確認規則並開始"))])
             ))
 
         elif user_msg == "確認規則並開始":
             sheet_s.update_cell(row_idx, 2, "Intro_1") 
             reply_msgs.append(create_zone_flex(1))
 
-        elif user_msg == "確認開始答題":
+        # --- 確認開始答題 或 抽下一題挑戰 ---
+        elif user_msg == "確認開始答題" or user_msg == "抽下一題挑戰":
             zone = 1
             if curr_stage.startswith("Intro_"):
                 zone = int(curr_stage.split("_")[1])
@@ -245,8 +238,8 @@ def handle_message(event):
                 zone = (int(curr_stage) + 1) // 2
             
             q_data, new_used_qs = get_random_q_and_update_used(zone, used_qs)
-            
             if q_data:
+                # 若是從介紹頁進入，設定關卡號碼；若是抽下一題，則關卡號碼不變
                 new_stage = (zone * 2 - 1) if curr_stage.startswith("Intro_") else int(curr_stage)
                 sheet_s.update_cell(row_idx, 2, new_stage)
                 sheet_s.update_cell(row_idx, 3, str(q_data['正確答案']).upper())
@@ -264,7 +257,6 @@ def handle_message(event):
                 if s_int >= MAX_STAGE:
                     sheet_s.update_cell(row_idx, 2, "Completed")
                     sheet_s.update_cell(row_idx, 8, 0)
-                    
                     if last_play_date == today_str:
                         reply_msgs.append(TextMessage(text="恭喜！你已順利通關 8 道難題！\n\n(註：您今日已經領取過兌換卷囉，每天限領一張，歡迎明天再來挑戰收集！)"))
                         reply_msgs.append(create_wallet_flex(wallet_str))
@@ -272,14 +264,12 @@ def handle_message(event):
                         new_wallet = wallet_str + f",{today_str}:No" if wallet_str else f"{today_str}:No"
                         sheet_s.update_cell(row_idx, 6, today_str) 
                         sheet_s.update_cell(row_idx, 7, new_wallet) 
-                        
                         reply_msgs.append(TextMessage(text="恭喜！你已順利通關 8 道難題！\n已將今日的限量扭蛋兌換卷存入「我的兌換卷」中 🎁"))
                         reply_msgs.append(create_wallet_flex(new_wallet))
                 else:
                     next_s = s_int + 1
                     is_new_zone = (next_s % 2 != 0)
                     zone = (next_s + 1) // 2
-                    
                     if is_new_zone:
                         sheet_s.update_cell(row_idx, 2, f"Intro_{zone}")
                         reply_msgs.append(TextMessage(text="答對了！進入下一區。"))
@@ -290,7 +280,6 @@ def handle_message(event):
                         sheet_s.update_cell(row_idx, 3, str(q_data['正確答案']).upper())
                         sheet_s.update_cell(row_idx, 4, str(q_data.get('提示', '')))
                         sheet_s.update_cell(row_idx, 5, new_used_qs)
-                        
                         reply_msgs.append(TextMessage(text="答對了！繼續本區下一題。"))
                         reply_msgs.append(create_question_flex(q_data))
                         if str(q_data.get('提示', '')).strip():
@@ -298,35 +287,18 @@ def handle_message(event):
             else:
                 mistakes += 1
                 if mistakes >= 3:
-                    # 第三次答錯：完全重置
                     sheet_s.update_cell(row_idx, 2, 0)
                     sheet_s.update_cell(row_idx, 8, 0) 
                     fail_qr = QuickReply(items=[QuickReplyItem(action=MessageAction(label="重新挑戰", text="重新挑戰"))])
                     reply_msgs.append(TextMessage(text="挑戰失敗，進度已歸零。請重新觀察展品後，再次挑戰吧！", quick_reply=fail_qr))
                 else:
-                    # 前兩次答錯：只更新錯誤次數，不推進關卡 (curr_stage 不變)
+                    # 🌟 關鍵修改：答錯時不再自動抽題，而是提供按鈕
                     sheet_s.update_cell(row_idx, 8, mistakes) 
-                    
-                    # 先給予文字回饋
+                    retry_qr = QuickReply(items=[QuickReplyItem(action=MessageAction(label="抽下一題挑戰", text="抽下一題挑戰"))])
                     reply_msgs.append(TextMessage(
-                        text=f"不對呦，剛剛那題的正確答案是 {correct_ans}。\n(目前錯誤次數：{mistakes}/3)\n\n為您換一題，請繼續挑戰！"
+                        text=f"不對呦，剛剛那題的正確答案是 {correct_ans}。\n(目前錯誤次數：{mistakes}/3)\n\n請點擊下方按鈕繼續挑戰！",
+                        quick_reply=retry_qr
                     ))
-                    
-                    # 結算目前所在的展區
-                    zone = (int(curr_stage) + 1) // 2 
-                    
-                    # 重新抽同一區的新題目
-                    q_data, new_used_qs = get_random_q_and_update_used(zone, used_qs)
-                    
-                    # 更新資料庫的新答案與記憶
-                    sheet_s.update_cell(row_idx, 3, str(q_data['正確答案']).upper())
-                    sheet_s.update_cell(row_idx, 4, str(q_data.get('提示', '')))
-                    sheet_s.update_cell(row_idx, 5, new_used_qs)
-                    
-                    # 推送新題目卡片
-                    reply_msgs.append(create_question_flex(q_data))
-                    if str(q_data.get('提示', '')).strip():
-                        reply_msgs.append(TextMessage(text=f"提示：{q_data['提示']}"))
 
         # --- 預設導引 ---
         else:
