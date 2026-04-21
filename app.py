@@ -25,11 +25,9 @@ VERIFY_PASSWORD = "123"
 # --- 2. 設定 Google Sheets 連線 & 時區 ---
 google_creds_str = os.getenv('GOOGLE_CREDENTIALS')
 if google_creds_str:
-    # 雲端 Vercel 模式：從環境變數讀取金鑰
     creds_dict = json.loads(google_creds_str)
     gc = gspread.service_account_from_dict(creds_dict)
 else:
-    # 本地電腦測試模式：讀取實體檔案
     gc = gspread.service_account(filename='credentials.json')
 
 sh = gc.open('清大文物館_Bot資料庫')
@@ -37,7 +35,7 @@ sheet_q = sh.worksheet('題庫')
 sheet_s = sh.worksheet('玩家狀態')
 
 MAX_STAGE = 8 
-tz = timezone(timedelta(hours=8)) # 設定為台灣時間 (UTC+8)
+tz = timezone(timedelta(hours=8))
 
 # --- 3. 展區資料定義 ---
 ZONES = {
@@ -143,11 +141,9 @@ def get_user_data(user_id):
     if user_id in users:
         row = users.index(user_id) + 1
         data = sheet_s.row_values(row)
-        # 🌟 修改點：將資料欄位擴充至 8 欄，第 8 欄用於記錄「錯誤次數」
         while len(data) < 8: data.append("0") 
         return row, data
     else:
-        # 新玩家預設錯誤次數為 0
         sheet_s.append_row([user_id, 0, "", "", "", "", "", "0"])
         return len(users) + 1, [user_id, 0, "", "", "", "", "", "0"]
 
@@ -194,7 +190,6 @@ def handle_message(event):
         used_qs = str(u_data[4])
         last_play_date = str(u_data[5]) 
         wallet_str = str(u_data[6])     
-        # 🌟 取出目前的錯誤次數
         mistakes = int(u_data[7]) if str(u_data[7]).isdigit() else 0 
         
         today_str = datetime.now(tz).strftime('%Y-%m-%d')
@@ -221,12 +216,12 @@ def handle_message(event):
 
         elif user_msg == "開始挑戰" or user_msg == "重新挑戰":
             sheet_s.update_cell(row_idx, 2, "Rules_Read") 
-            sheet_s.update_cell(row_idx, 8, 0) # 🌟 重新挑戰時，重置錯誤次數
+            sheet_s.update_cell(row_idx, 8, 0) 
             rule_text = (
                 "【挑戰規則說明】\n\n"
                 "1. 成功通關8道題目即可獲得一張兌換卷，將自動存入「我的兌換卷」。\n"
                 "2. 每人每日限領一張，歡迎每日來挑戰!\n"
-                "3. 答錯三次將重新開始，請再接再厲。\n\n" # 🌟 修改規則文字
+                "3. 答錯三次將重新開始，請再接再厲。\n\n"
                 "每週三16:00–17:00\n"
                 "每週六14:00–15:00\n"
                 "請於上述時間，憑「兌換卷」至文物館展覽廳扭蛋換取徽章!\n\n"
@@ -268,7 +263,7 @@ def handle_message(event):
             if user_msg == correct_ans:
                 if s_int >= MAX_STAGE:
                     sheet_s.update_cell(row_idx, 2, "Completed")
-                    sheet_s.update_cell(row_idx, 8, 0) # 🌟 破關後歸零錯誤次數
+                    sheet_s.update_cell(row_idx, 8, 0)
                     
                     if last_play_date == today_str:
                         reply_msgs.append(TextMessage(text="恭喜！你已順利通關 8 道難題！\n\n(註：您今日已經領取過兌換卷囉，每天限領一張，歡迎明天再來挑戰收集！)"))
@@ -301,18 +296,25 @@ def handle_message(event):
                         if str(q_data.get('提示', '')).strip():
                             reply_msgs.append(TextMessage(text=f"提示：{q_data['提示']}"))
             else:
-                # 🌟 修改點：答錯的處理邏輯
                 mistakes += 1
                 if mistakes >= 3:
-                    # 第三次答錯：完全重置
                     sheet_s.update_cell(row_idx, 2, 0)
-                    sheet_s.update_cell(row_idx, 8, 0) # 將錯誤次數歸零
+                    sheet_s.update_cell(row_idx, 8, 0) 
                     fail_qr = QuickReply(items=[QuickReplyItem(action=MessageAction(label="重新挑戰", text="重新挑戰"))])
                     reply_msgs.append(TextMessage(text="挑戰失敗，進度已歸零。請重新觀察展品後，再次挑戰吧！", quick_reply=fail_qr))
                 else:
-                    # 前兩次答錯：給予正確答案，不重置關卡
-                    sheet_s.update_cell(row_idx, 8, mistakes) # 將最新錯誤次數寫入資料庫
-                    reply_msgs.append(TextMessage(text=f"不對呦，正確答案是 {correct_ans}。"))
+                    # 🌟 修改點：提供正確答案後，加入 Quick Reply 按鈕讓觀眾點選繼續
+                    sheet_s.update_cell(row_idx, 8, mistakes) 
+                    
+                    retry_qr = QuickReply(items=[
+                        QuickReplyItem(action=MessageAction(label="A", text="A")),
+                        QuickReplyItem(action=MessageAction(label="B", text="B")),
+                        QuickReplyItem(action=MessageAction(label="C", text="C"))
+                    ])
+                    reply_msgs.append(TextMessage(
+                        text=f"不對呦，正確答案是 {correct_ans}。\n(目前錯誤次數：{mistakes}/3)\n請點擊下方正確答案以繼續闖關！",
+                        quick_reply=retry_qr
+                    ))
 
         # --- 預設導引 ---
         else:
