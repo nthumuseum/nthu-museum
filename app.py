@@ -316,3 +316,7 @@ def handle_message(event):
 
 if __name__ == "__main__":
     app.run(port=5000)
+    
+@app.route("/", methods=['GET'])
+def index():
+    return 'Bot is running!', 200
