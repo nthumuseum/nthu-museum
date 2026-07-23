@@ -1,0 +1,4 @@
+line-bot-sdk==3.7
+flask==3.0.0
+gspread
+python-dotenv
